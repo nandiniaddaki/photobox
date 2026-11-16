@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>PhotoBox · System Design Lab</title>
+    <style>
+        * { box-sizing: border-box; }
+        body { margin: 0; font-family: system-ui, -apple-system, "Segoe UI", sans-serif; background: #f5f5f4; color: #1c1917; }
+        header { background: #1c1917; color: #fafaf9; padding: 18px 24px; }
+        header h1 { margin: 0; font-size: 22px; }
+        header p { margin: 4px 0 0; color: #a8a29e; font-size: 14px; }
+        main { display: grid; grid-template-columns: 1fr 380px; gap: 20px; padding: 20px 24px; max-width: 1300px; margin: 0 auto; }
+        @media (max-width: 900px) { main { grid-template-columns: 1fr; } }
+        .card { background: #fff; border: 1px solid #e7e5e4; border-radius: 10px; padding: 16px; margin-bottom: 16px; }
+        h2 { font-size: 16px; margin: 0 0 12px; }
+        .alert { padding: 10px 14px; border-radius: 8px; margin-bottom: 14px; font-size: 14px; }
+        .alert.ok { background: #dcfce7; color: #166534; }
+        .alert.err { background: #fee2e2; color: #991b1b; }
+        form.upload { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+        input[type=text] { padding: 8px 10px; border: 1px solid #d6d3d1; border-radius: 6px; }
+        button { background: #1c1917; color: #fff; border: 0; padding: 9px 16px; border-radius: 6px; cursor: pointer; font-weight: 600; }
+        button.small { background: #fff; color: #b91c1c; border: 1px solid #fecaca; padding: 4px 10px; font-size: 12px; }
+        .hint { font-size: 12px; color: #78716c; margin-top: 8px; }
+        .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 12px; }
+        .photo { border: 1px solid #e7e5e4; border-radius: 8px; overflow: hidden; background: #fafaf9; }
+        .photo img { width: 100%; height: 160px; object-fit: cover; display: block; background: #e7e5e4; }
+        .photo .meta { padding: 8px; font-size: 12px; display: flex; justify-content: space-between; align-items: center; gap: 6px; }
+        .badge { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 11px; font-weight: 600; }
+        .s0 { background: #dbeafe; color: #1e40af; }
+        .s1 { background: #fce7f3; color: #9d174d; }
+        .empty { color: #78716c; text-align: center; padding: 40px 0; }
+        .stat { display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px dashed #e7e5e4; font-size: 14px; }
+        .stat:last-child { border: 0; }
+        .big { font-weight: 700; }
+        .hit { color: #15803d; } .miss { color: #c2410c; }
+        .explain { font-size: 13px; color: #44403c; line-height: 1.5; margin: 10px 0 0; }
+        ol { padding-left: 18px; margin: 0; font-size: 13px; line-height: 1.6; }
+        table { width: 100%; border-collapse: collapse; font-size: 12px; }
+        td { padding: 5px 4px; border-bottom: 1px solid #f5f5f4; vertical-align: top; }
+        td.t { color: #a8a29e; white-space: nowrap; font-family: ui-monospace, monospace; }
+        .tag { font-size: 10px; font-weight: 700; padding: 2px 6px; border-radius: 4px; white-space: nowrap; background: #e7e5e4; }
+        .tag-CACHE-HIT { background: #dcfce7; color: #166534; }
+        .tag-CACHE-MISS { background: #ffedd5; color: #9a3412; }
+        .tag-CACHE-SET { background: #e0f2fe; color: #075985; }
+        .tag-INVALIDATE { background: #fef9c3; color: #854d0e; }
+        .tag-SHARD { background: #ede9fe; color: #5b21b6; }
+        .tag-RATE-LIMIT { background: #fee2e2; color: #991b1b; }
+        .tag-DB { background: #f5f5f4; color: #44403c; }
+        .tag-REDIS-DOWN { background: #991b1b; color: #fff; }
+    </style>
+</head>
+<body>
+<header>
+    <h1>📸 PhotoBox · System Design Lab</h1>
+    <p>Upload photos and watch caching, TTL, cache invalidation, rate limiting and sharding happen live.</p>
+</header>
+
+<main>
+    <!-- LEFT: the app -->
+    <section>
+        <div th:if="${success}" class="alert ok" th:text="${success}">ok</div>
+        <div th:if="${error}" class="alert err" th:text="${error}">err</div>
+
+        <div class="card">
+            <h2>Upload a photo</h2>
+            <form class="upload" method="post" th:action="@{/upload}" enctype="multipart/form-data">
+                <input type="text" name="owner" placeholder="Your name" maxlength="30">
+                <input type="file" name="file" accept="image/jpeg,image/png,image/gif,image/webp" required>
+                <button type="submit">Upload</button>
+            </form>
+            <div class="hint">Max 2 MB · JPG/PNG/GIF/WEBP · photos are public, so don't upload anything private.</div>
+        </div>
+
+        <div class="card">
+            <h2 th:text="'Feed (' + ${feed.photos().size()} + ' photos)'">Feed</h2>
+            <div th:if="${feed.photos().isEmpty()}" class="empty">No photos yet. Be the first to upload one!</div>
+            <div class="grid">
+                <div class="photo" th:each="p : ${feed.photos()}">
+                    <img th:src="@{/photos/{id}(id=${p.id()})}" th:alt="${p.filename()}" loading="lazy">
+                    <div class="meta">
+                        <span>
+                            <strong th:text="${p.owner()}">name</strong><br>
+                            <span th:text="${p.ago()} + ' · ' + ${p.sizeKb()}">time</span>
+                        </span>
+                        <span>
+                            <span th:class="'badge s' + ${p.shard()}" th:text="'shard ' + ${p.shard()}">shard</span>
+                            <form th:if="${mine.contains(p.id())}" method="post"
+                                  th:action="@{/photos/{id}/delete(id=${p.id()})}" style="margin-top:4px">
+                                <button class="small" type="submit">Delete</button>
+                            </form>
+                        </span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- RIGHT: behind the scenes -->
+    <aside>
+        <div class="card">
+            <h2>🔍 What happened on this page load?</h2>
+            <div class="stat">
+                <span>Feed came from</span>
+                <span th:if="${feed.cacheHit()}" class="big hit">Redis cache (HIT)</span>
+                <span th:unless="${feed.cacheHit()}" class="big miss">Database (MISS)</span>
+            </div>
+            <div class="stat">
+                <span>Time to load feed</span>
+                <span class="big" th:text="${feed.millis()} + ' ms'">0 ms</span>
+            </div>
+            <div class="stat">
+                <span>Cache expires in (TTL)</span>
+                <span class="big" th:text="${feed.ttlSeconds() >= 0} ? ${feed.ttlSeconds()} + ' s' : 'not cached'">60 s</span>
+            </div>
+            <div class="stat" th:each="s : ${#numbers.sequence(0, shardCount - 1)}">
+                <span th:text="'Photos in shard ' + ${s} + ' (table photos_' + ${s} + ')'">shard</span>
+                <span class="big" th:text="${feed.countInShard(s)}">0</span>
+            </div>
+            <p class="explain">
+                The database query has a fake 300 ms delay to act like a heavy query.
+                A <b>MISS</b> pays that cost; a <b>HIT</b> skips the database and comes back in a few ms.
+            </p>
+        </div>
+
+        <div class="card">
+            <h2>🧪 Try these experiments</h2>
+            <ol>
+                <li><b>Cache:</b> Refresh twice. First is MISS (~300 ms), second is HIT (a few ms).</li>
+                <li><b>TTL:</b> Wait 60 seconds without touching anything, then refresh. It's a MISS again because the key expired.</li>
+                <li><b>Invalidation:</b> Upload a photo. The cache is deleted right away, so you see your photo immediately instead of a stale feed.</li>
+                <li><b>Rate limiting:</b> Upload 6 photos within a minute. The 6th is blocked.</li>
+                <li><b>Sharding:</b> Look at the shard badges. Each photo is saved in only one table, and the feed asks both tables and merges them (scatter-gather).</li>
+                <li><b>Browser cache:</b> Open DevTools → Network and refresh. The images come "from disk cache" and never hit the server.</li>
+            </ol>
+        </div>
+
+        <div class="card">
+            <h2>📜 Live server log <span class="hint">(everyone's requests, UTC)</span></h2>
+            <table>
+                <tr th:each="e : ${events}">
+                    <td class="t" th:text="${e.time()}">00:00:00</td>
+                    <td><span th:class="'tag tag-' + ${#strings.replace(e.type(), ' ', '-')}" th:text="${e.type()}">TYPE</span></td>
+                    <td th:text="${e.message()}">message</td>
+                </tr>
+            </table>
+        </div>
+    </aside>
+</main>
+</body>
+</html>
