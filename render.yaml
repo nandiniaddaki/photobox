@@ -1,0 +1,45 @@
+# Render Blueprint: creates the web app + PostgreSQL + Redis (Key Value) in one click.
+services:
+  - type: web
+    name: photobox
+    runtime: docker
+    plan: free
+    healthCheckPath: /health
+    envVars:
+      - key: DB_HOST
+        fromDatabase:
+          name: photobox-db
+          property: host
+      - key: DB_PORT
+        fromDatabase:
+          name: photobox-db
+          property: port
+      - key: DB_NAME
+        fromDatabase:
+          name: photobox-db
+          property: database
+      - key: DB_USER
+        fromDatabase:
+          name: photobox-db
+          property: user
+      - key: DB_PASSWORD
+        fromDatabase:
+          name: photobox-db
+          property: password
+      - key: REDIS_URL
+        fromService:
+          name: photobox-cache
+          type: keyvalue
+          property: connectionString
+
+  - type: keyvalue
+    name: photobox-cache
+    plan: free
+    ipAllowList: [] # only reachable from your own Render services
+    maxmemoryPolicy: allkeys-lru
+
+databases:
+  - name: photobox-db
+    plan: free
+    databaseName: photos
+    user: photos
